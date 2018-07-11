@@ -26,21 +26,6 @@ some kind of mapping between vertices and their positions in the heap.
 import time
 
 
-# input: filename
-# output: Graph
-def create_graph(filename):
-    G = Graph()
-    with open(filename) as f_handle:
-        f_handle.readline()
-        for line in f_handle:
-            edge = line.split()
-            u = int(edge[0])
-            v = int(edge[1])
-            cost = int(edge[2])
-            G.add_e(u, v, cost)
-    return G
-
-
 # Vertex class for undirected graphs
 class Vertex():
     def __init__(self, key):
@@ -184,18 +169,25 @@ class Heap():
         return is_min_heap if self._min_heap else not is_min_heap
 
     def _swap(self, i, j):
+        # bookkeeping for Prim's MST algorithm:
+        # global heap_i
+        # u = self._heap[i]
+        # v = self._heap[j]
+        # heap_i[u] = j
+        # heap_i[v] = i
+
         self._heap[i], self._heap[j] = self._heap[j], self._heap[i]
 
     # input: parent and child indices
     def _sift_up(self, p_i, c_i):
         if p_i == -1:
-            return
+            return 0
         p = self._heap[p_i]
         c = self._heap[c_i]
+
         while (not self._is_balanced(p, c)):
             p_i = (c_i - 1) // 2
             self._swap(c_i, p_i)
-
             c_i = p_i
             if c_i is 0:
                 break
@@ -209,16 +201,28 @@ class Heap():
             c_i = self._get_swapped_child_index(p_i)
 
     def get_root(self):
-        if self._heap:
+        try:
             return self._heap[0]
+        except KeyError:
+            return None
+
+    def get_node(self, key):
+        try:
+            return self._heap[key]
+        except KeyError:
+            return None
 
     def get_nodes(self):
         return self._heap
 
-    # inserts node in O(logn) time
     def insert(self, node):
         self._heap.append(node)
         node_i = len(self._heap) - 1
+
+        # bookkeeping for Prim's MST algorithm:
+        # global heap_i
+        # heap_i[node] = node_i
+
         self._sift_up((node_i - 1) // 2, node_i)
 
     # input: parent index
@@ -275,29 +279,82 @@ class Heap():
         return self._heap
 
 
-# input: graph G assumed to be a minimum spanning tree
+# Global variables
+G = Graph()
+H = Heap()
+X = {1: 1}  # vertices spanned by tree T
+# heap_i = {}  # tracks index of vertices in heap
+
+
+# input: filename
+# output: Graph
+def create_graph(filename):
+    global G
+    with open(filename) as f_handle:
+        f_handle.readline()
+        for line in f_handle:
+            edge = line.split()
+            u = int(edge[0])
+            v = int(edge[1])
+            cost = int(edge[2])
+            G.add_e(u, v, cost)
+    return G
+
+
+# input: graph T (assumed to be a minimum spanning tree)
 # output: cost of MST
-def calc_cost(G):
+def calc_cost(T):
     cost = 0
-    G_keys = G.get_v_keys()
+    G_keys = T.get_v_keys()
     for v_k in G_keys:
-        v = G.get_v(v_k)
+        v = T.get_v(v_k)
         nbr_keys = v.get_nbr_keys()
         for nbr_k in nbr_keys:
             cost += v.get_e(nbr_k)
     return cost // 2
 
 
-# input: graph G
-# output: cost of minimum spanning tree
-def minimum_spanning_tree(G):
-    X = {1: 1}  # vertices spanned by tree T
-    T = Graph()  # add 1 edge each iteration
+# input: heap key (vertex) to update, u edge cost which may decrease v's position in heap
+# def update_heap_key(v, u_v_cost):
+#     global H, heap_i
 
-    G_nodes = len(G.get_v_keys())
-    while len(X.keys()) != G_nodes:
+#     v_heap_i = heap_i[v]
+#     if u_v_cost < H.get_node(v_heap_i):
+#         H.delete(v_heap_i)  # delete at index i the vertex v in heap
+#         insert_i = H.insert(u_v_cost)
+#         heap_i[v] = insert_i
+
+
+# input: vertices to update [optional]
+# output: updated heap
+def calc_heap(vertices):
+    global G, H, X, heap_i
+    G_keys = G.get_v_keys()
+    for v in G_keys:
+        if v not in X:
+            u_keys = list(filter(lambda u: u in X, G.get_v(v).get_nbr_keys()))
+            u_edges = list(map(lambda u: G.get_e(u, v), u_keys))
+            # print('v: ', v)
+            # print('u_keys: ', u_keys)
+            # print('u_edges: ', u_edges)
+            min_u_cost = min(u_edges) if u_edges else 1000000
+            H.insert(min_u_cost)
+            # print('min_u_cost: ', min_u_cost)
+            # print('H: ', H)
+            # print('heap_i: ', heap_i)
+    return H
+
+
+# output: minimum spanning tree
+def minimum_spanning_tree():
+    global G, H, X, heap_i
+    T = Graph()
+    # H = calc_heap(G)
+
+    num_vertices = len(G.get_v_keys())
+    while len(X.keys()) != num_vertices:
         min_cost = 1000000
-        min_edge = None
+        min_e = None
         for v_k in X:
             v = G.get_v(v_k)
             nbr_keys = filter(lambda k: k not in X, v.get_nbr_keys())
@@ -305,21 +362,22 @@ def minimum_spanning_tree(G):
                 cost = v.get_e(nbr_k)
                 if cost < min_cost:
                     min_cost = cost
-                    min_edge = [v_k, nbr_k]
-        u, v = min_edge[0], min_edge[1]
+                    min_e = [v_k, nbr_k]
+        u, v = min_e[0], min_e[1]
         T.add_e(u, v, G.get_e(u, v))
         X[v] = 1
 
-    return calc_cost(T)
+    return T
 
 
 def main():
-    G = create_graph('minimum_spanning_tree.txt')
+    # Expected example overall cost of MST = 14
+    create_graph('minimum_spanning_tree_ex.txt')
     # print(G)
 
     start = time.time()
-    result = minimum_spanning_tree(G)
-    # example overall cost of MST = 14
+    mst = minimum_spanning_tree()
+    result = calc_cost(mst)
     print('result: ', result)
     print('elapsed time: ', time.time() - start)
 
